@@ -1,0 +1,17 @@
+# Environment variables
+.env
+
+# Go build output
+/bin/
+/dist/
+/build/
+*.exe
+*.out
+
+# Go workspace
+/vendor/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
