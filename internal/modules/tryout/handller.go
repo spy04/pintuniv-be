@@ -3,7 +3,9 @@ package tryout
 import (
 	"pintuniv-go/internal/database"
 	"pintuniv-go/internal/models"
+	"pintuniv-go/internal/modules/materi"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -88,4 +90,208 @@ func AdminCreateTryoutOption(c *gin.Context) {
 	}
 
 	c.JSON(201, o)
+}
+
+func StartTryout(c *gin.Context) {
+	userID := c.GetUint("user_id")
+	tryoutID, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+
+	// 1. CEK TRYOUT
+	var t models.Tryout
+	if err := database.DB.
+		Where("id = ? AND is_active = true", tryoutID).
+		First(&t).Error; err != nil {
+		c.JSON(404, gin.H{"error": "tryout_not_found"})
+		return
+	}
+
+	// 2. CEK USER PRO (PAKAI YANG SUDAH ADA)
+	isPro := materi.IsUserPro(&userID)
+
+	if !isPro {
+		count, err := CountUserTryoutThisMonth(userID)
+		if err != nil {
+			c.JSON(500, gin.H{"error": "failed_check_limit"})
+			return
+		}
+
+		if count >= 3 {
+			c.JSON(403, gin.H{
+				"error": "tryout_limit_reached",
+				"limit": 3,
+			})
+			return
+		}
+	}
+
+	// 3. BUAT ATTEMPT
+	attempt := models.TryoutAttempt{
+		UserID:    userID,
+		TryoutID:  uint(tryoutID),
+		StartedAt: time.Now(),
+	}
+
+	if err := database.DB.Create(&attempt).Error; err != nil {
+		c.JSON(500, gin.H{"error": "failed_start_tryout"})
+		return
+	}
+
+	c.JSON(201, gin.H{
+		"attempt_id": attempt.ID,
+		"duration":   t.Duration,
+	})
+}
+
+func GetTryoutQuestionByNumber(c *gin.Context) {
+	// userID := c.GetUint("user_id")
+
+	tryoutID, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	number, _ := strconv.Atoi(c.Param("number"))
+
+	attemptIDStr := c.Query("attempt_id")
+	if attemptIDStr == "" {
+		c.JSON(400, gin.H{"error": "attempt_id_required"})
+		return
+	}
+	attemptID, _ := strconv.ParseUint(attemptIDStr, 10, 64)
+
+	if number <= 0 {
+		c.JSON(400, gin.H{"error": "invalid_question_number"})
+		return
+	}
+
+	offset := number - 1
+
+	// 1. AMBIL QUESTION KE-N
+	var question models.TryoutQuestion
+	err := database.DB.
+		Where("tryout_id = ?", tryoutID).
+		Order("`order` ASC, id ASC").
+		Offset(offset).
+		Limit(1).
+		First(&question).Error
+
+	if err != nil {
+		c.JSON(404, gin.H{"error": "question_not_found"})
+		return
+	}
+
+	// 2. AMBIL OPTIONS
+	var options []models.TryoutOption
+	database.DB.
+		Where("question_id = ?", question.ID).
+		Find(&options)
+
+	// 3. CEK JAWABAN USER (UNTUK RESUME)
+	var answer models.TryoutAnswer
+	answered := true
+	if err := database.DB.
+		Where(
+			"attempt_id = ? AND question_id = ?",
+			attemptID, question.ID,
+		).
+		First(&answer).Error; err != nil {
+		answered = false
+	}
+
+	respOptions := []gin.H{}
+	for _, o := range options {
+		respOptions = append(respOptions, gin.H{
+			"id":   o.ID,
+			"text": o.Text,
+		})
+	}
+
+	c.JSON(200, gin.H{
+		"question": gin.H{
+			"id":       question.ID,
+			"number":   number,
+			"content":  question.Question,
+			"answered": answered,
+			"answer": gin.H{
+				"option_id": answer.OptionID,
+			},
+		},
+		"options": respOptions,
+	})
+}
+
+type SubmitTryoutRequest struct {
+	AttemptID uint `json:"attempt_id" binding:"required"`
+	Answers   []struct {
+		QuestionID uint `json:"question_id"`
+		OptionID   uint `json:"option_id"`
+	} `json:"answers" binding:"required"`
+}
+
+func SubmitTryout(c *gin.Context) {
+	userID := c.GetUint("user_id")
+	tryoutID, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+
+	var req SubmitTryoutRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 1. AMBIL ATTEMPT
+	var attempt models.TryoutAttempt
+	if err := database.DB.
+		Where(
+			"id = ? AND user_id = ? AND tryout_id = ?",
+			req.AttemptID, userID, tryoutID,
+		).
+		First(&attempt).Error; err != nil {
+		c.JSON(404, gin.H{"error": "attempt_not_found"})
+		return
+	}
+
+	// 2. CEK SUDAH FINISH BELUM
+	if attempt.FinishedAt != nil {
+		c.JSON(400, gin.H{"error": "tryout_already_submitted"})
+		return
+	}
+
+	score := 0
+
+	// 3. LOOP JAWABAN
+	for _, a := range req.Answers {
+
+		// validasi option milik question + benar/salah
+		var option models.TryoutOption
+		if err := database.DB.
+			Where(
+				"id = ? AND question_id = ?",
+				a.OptionID, a.QuestionID,
+			).
+			First(&option).Error; err != nil {
+			continue // jawaban invalid → skip
+		}
+
+		// simpan jawaban
+		answer := models.TryoutAnswer{
+			AttemptID:  attempt.ID,
+			QuestionID: a.QuestionID,
+			OptionID:   a.OptionID,
+		}
+		database.DB.Create(&answer)
+
+		if option.IsCorrect {
+			score++
+		}
+	}
+
+	// 4. UPDATE ATTEMPT
+	now := time.Now()
+	database.DB.
+		Model(&models.TryoutAttempt{}).
+		Where("id = ?", attempt.ID).
+		Updates(map[string]interface{}{
+			"score":       score,
+			"finished_at": &now,
+		})
+
+	c.JSON(200, gin.H{
+		"score": score,
+	})
 }

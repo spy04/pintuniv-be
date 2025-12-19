@@ -1,6 +1,10 @@
 package tryout
 
-import "github.com/gin-gonic/gin"
+import (
+	"pintuniv-go/internal/middleware"
+
+	"github.com/gin-gonic/gin"
+)
 
 func RegisterRoutes(r *gin.Engine) {
 	api := r.Group("/api")
@@ -10,6 +14,22 @@ func RegisterRoutes(r *gin.Engine) {
 		api.POST("/admin/tryouts/:id/questions", AdminCreateTryoutQuestion)
 		api.POST("/admin/tryout-questions/:id/options", AdminCreateTryoutOption)
 
-		// USER (nanti)
+		// USER
+		api.POST(
+			"/tryouts/:id/start",
+			middleware.JWTAuth(),
+			StartTryout,
+		)
+		api.GET(
+			"/tryouts/:id/question/:number",
+			middleware.JWTAuth(),
+			GetTryoutQuestionByNumber,
+		)
+		api.POST(
+			"/tryouts/:id/submit",
+			middleware.JWTAuth(),
+			SubmitTryout,
+		)
+
 	}
 }
