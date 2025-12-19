@@ -9,6 +9,7 @@ import (
 	"pintuniv-go/internal/modules/latihan"
 	"pintuniv-go/internal/modules/materi"
 	"pintuniv-go/internal/modules/profile"
+	"pintuniv-go/internal/modules/tryout"
 
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
@@ -30,6 +31,11 @@ func main() {
 		&models.Question{},
 		&models.UserAnswer{},
 		&models.UserLatihanAttempt{},
+		&models.Tryout{},
+		&models.TryoutQuestion{},
+		&models.TryoutOption{},
+		&models.TryoutAttempt{},
+		&models.TryoutAnswer{},
 	)
 
 	r := gin.Default()
@@ -40,6 +46,7 @@ func main() {
 	profile.RegisterRoutes(r)
 	materi.RegisterRoutes(r)
 	latihan.RegisterRoutes(r)
+	tryout.RegisterRoutes(r)
 
 	port := os.Getenv("PORT")
 	if port == "" {
