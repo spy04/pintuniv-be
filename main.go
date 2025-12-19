@@ -6,6 +6,7 @@ import (
 	"pintuniv-go/internal/database"
 	"pintuniv-go/internal/models"
 	"pintuniv-go/internal/modules/auth"
+	"pintuniv-go/internal/modules/latihan"
 	"pintuniv-go/internal/modules/materi"
 	"pintuniv-go/internal/modules/profile"
 
@@ -24,6 +25,11 @@ func main() {
 		&models.PasswordReset{},
 		&models.Materi{},
 		&models.MateriSection{},
+		&models.Latihan{},
+		&models.Option{},
+		&models.Question{},
+		&models.UserAnswer{},
+		&models.UserLatihanAttempt{},
 	)
 
 	r := gin.Default()
@@ -33,6 +39,7 @@ func main() {
 	auth.RegisterRoutes(r)
 	profile.RegisterRoutes(r)
 	materi.RegisterRoutes(r)
+	latihan.RegisterRoutes(r)
 
 	port := os.Getenv("PORT")
 	if port == "" {
