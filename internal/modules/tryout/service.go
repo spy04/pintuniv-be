@@ -29,3 +29,18 @@ func CountUserTryoutThisMonth(userID uint) (int64, error) {
 
 	return count, err
 }
+
+func GetRemainingSeconds(
+	startedAt time.Time,
+	durationMinutes int,
+) int64 {
+	endTime := startedAt.Add(
+		time.Duration(durationMinutes) * time.Minute,
+	)
+
+	remaining := time.Until(endTime).Seconds()
+	if remaining < 0 {
+		return 0
+	}
+	return int64(remaining)
+}

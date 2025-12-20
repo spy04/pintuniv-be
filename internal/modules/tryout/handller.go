@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm/clause"
 )
 
 type CreateTryoutRequest struct {
@@ -136,10 +137,16 @@ func StartTryout(c *gin.Context) {
 		return
 	}
 
+	remaining := GetRemainingSeconds(
+		attempt.StartedAt,
+		t.Duration,
+	)
+
 	c.JSON(201, gin.H{
-		"attempt_id": attempt.ID,
-		"duration":   t.Duration,
+		"attempt_id":        attempt.ID,
+		"remaining_seconds": remaining,
 	})
+
 }
 
 func GetTryoutQuestionByNumber(c *gin.Context) {
@@ -230,50 +237,116 @@ func SubmitTryout(c *gin.Context) {
 		return
 	}
 
-	// 1. ambil attempt
+	// =========================
+	// START TRANSACTION
+	// =========================
+	tx := database.DB.Begin()
+	if tx.Error != nil {
+		c.JSON(500, gin.H{"error": "failed_start_transaction"})
+		return
+	}
+
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
+	// =========================
+	// LOCK ATTEMPT ROW
+	// =========================
 	var attempt models.TryoutAttempt
-	if err := database.DB.
+	if err := tx.
+		Clauses(clause.Locking{Strength: "UPDATE"}).
 		Where(
 			"id = ? AND user_id = ? AND tryout_id = ?",
 			req.AttemptID, userID, tryoutID,
 		).
 		First(&attempt).Error; err != nil {
+
+		tx.Rollback()
 		c.JSON(404, gin.H{"error": "attempt_not_found"})
 		return
 	}
 
+	// =========================
+	// SUDAH FINISH?
+	// =========================
 	if attempt.FinishedAt != nil {
+		tx.Rollback()
 		c.JSON(400, gin.H{"error": "tryout_already_submitted"})
 		return
 	}
 
-	// 2. ambil semua jawaban draft
+	// =========================
+	// AMBIL TRYOUT (TANPA LOCK)
+	// =========================
+	var t models.Tryout
+	if err := tx.First(&t, attempt.TryoutID).Error; err != nil {
+		tx.Rollback()
+		c.JSON(500, gin.H{"error": "tryout_not_found"})
+		return
+	}
+
+	// =========================
+	// CEK WAKTU
+	// =========================
+	remaining := GetRemainingSeconds(
+		attempt.StartedAt,
+		t.Duration,
+	)
+
+	if remaining <= 0 {
+		now := time.Now()
+		tx.
+			Model(&models.TryoutAttempt{}).
+			Where("id = ?", attempt.ID).
+			Update("finished_at", &now)
+
+		tx.Commit()
+		c.JSON(400, gin.H{"error": "time_up"})
+		return
+	}
+
+	// =========================
+	// AMBIL JAWABAN DRAFT
+	// =========================
 	var answers []models.TryoutAnswer
-	database.DB.
+	tx.
 		Where("attempt_id = ?", attempt.ID).
 		Find(&answers)
 
 	score := 0
-
 	for _, a := range answers {
 		var option models.TryoutOption
-		if err := database.DB.
-			First(&option, a.OptionID).Error; err == nil {
+		if err := tx.First(&option, a.OptionID).Error; err == nil {
 			if option.IsCorrect {
 				score++
 			}
 		}
 	}
 
-	// 3. finalize attempt
+	// =========================
+	// FINALIZE ATTEMPT
+	// =========================
 	now := time.Now()
-	database.DB.
+	if err := tx.
 		Model(&models.TryoutAttempt{}).
 		Where("id = ?", attempt.ID).
 		Updates(map[string]interface{}{
 			"score":       score,
 			"finished_at": &now,
-		})
+		}).Error; err != nil {
+
+		tx.Rollback()
+		c.JSON(500, gin.H{"error": "failed_finalize"})
+		return
+	}
+
+	// =========================
+	// COMMIT
+	// =========================
+	tx.Commit()
 
 	c.JSON(200, gin.H{
 		"score": score,
@@ -308,10 +381,20 @@ func ResumeTryout(c *gin.Context) {
 		Where("attempt_id = ?", attempt.ID).
 		Count(&answeredCount)
 
+	var t models.Tryout
+	database.DB.First(&t, attempt.TryoutID)
+
+	remaining := GetRemainingSeconds(
+		attempt.StartedAt,
+		t.Duration,
+	)
+
 	c.JSON(200, gin.H{
-		"attempt_id":  attempt.ID,
-		"next_number": answeredCount + 1,
+		"attempt_id":        attempt.ID,
+		"next_number":       answeredCount + 1,
+		"remaining_seconds": remaining,
 	})
+
 }
 
 type SaveTryoutAnswerRequest struct {
