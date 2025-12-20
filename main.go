@@ -4,6 +4,7 @@ import (
 	"os"
 
 	"pintuniv-go/internal/database"
+	"pintuniv-go/internal/database/migrations"
 	"pintuniv-go/internal/models"
 	"pintuniv-go/internal/modules/auth"
 	"pintuniv-go/internal/modules/latihan"
@@ -37,6 +38,8 @@ func main() {
 		&models.TryoutAttempt{},
 		&models.TryoutAnswer{},
 	)
+
+	migrations.Run()
 
 	r := gin.Default()
 	r.Static("/public", "./public")
