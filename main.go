@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 
+	"pintuniv-go/internal/config"
 	"pintuniv-go/internal/database"
 	"pintuniv-go/internal/database/migrations"
 	"pintuniv-go/internal/models"
@@ -10,6 +11,8 @@ import (
 	"pintuniv-go/internal/modules/event"
 	"pintuniv-go/internal/modules/latihan"
 	"pintuniv-go/internal/modules/materi"
+	package_module "pintuniv-go/internal/modules/package"
+	"pintuniv-go/internal/modules/payment"
 	"pintuniv-go/internal/modules/profile"
 	"pintuniv-go/internal/modules/tryout"
 
@@ -19,6 +22,8 @@ import (
 
 func main() {
 	godotenv.Load()
+
+	config.InitMidtrans()
 
 	database.ConnectDB()
 	database.DB.AutoMigrate(
@@ -41,6 +46,9 @@ func main() {
 
 		&models.Event{},
 		&models.EventTryout{},
+
+		&models.Payment{},
+		&models.Package{},
 	)
 
 	migrations.Run()
@@ -55,6 +63,8 @@ func main() {
 	latihan.RegisterRoutes(r)
 	tryout.RegisterRoutes(r)
 	event.RegisterRoutes(r)
+	payment.RegisterRoutes(r)
+	package_module.RegisterRoutes(r)
 
 	port := os.Getenv("PORT")
 	if port == "" {
