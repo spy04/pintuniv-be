@@ -30,6 +30,17 @@ func RegisterRoutes(r *gin.Engine) {
 			middleware.JWTAuth(),
 			SubmitTryout,
 		)
+		api.GET(
+			"/tryouts/:id/resume",
+			middleware.JWTAuth(),
+			ResumeTryout,
+		)
+
+		api.POST(
+			"/tryouts/:id/answer",
+			middleware.JWTAuth(),
+			SaveTryoutAnswer,
+		)
 
 	}
 }

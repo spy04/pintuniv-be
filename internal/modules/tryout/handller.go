@@ -218,10 +218,6 @@ func GetTryoutQuestionByNumber(c *gin.Context) {
 
 type SubmitTryoutRequest struct {
 	AttemptID uint `json:"attempt_id" binding:"required"`
-	Answers   []struct {
-		QuestionID uint `json:"question_id"`
-		OptionID   uint `json:"option_id"`
-	} `json:"answers" binding:"required"`
 }
 
 func SubmitTryout(c *gin.Context) {
@@ -234,7 +230,7 @@ func SubmitTryout(c *gin.Context) {
 		return
 	}
 
-	// 1. AMBIL ATTEMPT
+	// 1. ambil attempt
 	var attempt models.TryoutAttempt
 	if err := database.DB.
 		Where(
@@ -246,42 +242,30 @@ func SubmitTryout(c *gin.Context) {
 		return
 	}
 
-	// 2. CEK SUDAH FINISH BELUM
 	if attempt.FinishedAt != nil {
 		c.JSON(400, gin.H{"error": "tryout_already_submitted"})
 		return
 	}
 
+	// 2. ambil semua jawaban draft
+	var answers []models.TryoutAnswer
+	database.DB.
+		Where("attempt_id = ?", attempt.ID).
+		Find(&answers)
+
 	score := 0
 
-	// 3. LOOP JAWABAN
-	for _, a := range req.Answers {
-
-		// validasi option milik question + benar/salah
+	for _, a := range answers {
 		var option models.TryoutOption
 		if err := database.DB.
-			Where(
-				"id = ? AND question_id = ?",
-				a.OptionID, a.QuestionID,
-			).
-			First(&option).Error; err != nil {
-			continue // jawaban invalid → skip
-		}
-
-		// simpan jawaban
-		answer := models.TryoutAnswer{
-			AttemptID:  attempt.ID,
-			QuestionID: a.QuestionID,
-			OptionID:   a.OptionID,
-		}
-		database.DB.Create(&answer)
-
-		if option.IsCorrect {
-			score++
+			First(&option, a.OptionID).Error; err == nil {
+			if option.IsCorrect {
+				score++
+			}
 		}
 	}
 
-	// 4. UPDATE ATTEMPT
+	// 3. finalize attempt
 	now := time.Now()
 	database.DB.
 		Model(&models.TryoutAttempt{}).
@@ -294,4 +278,78 @@ func SubmitTryout(c *gin.Context) {
 	c.JSON(200, gin.H{
 		"score": score,
 	})
+}
+
+func ResumeTryout(c *gin.Context) {
+	userID := c.GetUint("user_id")
+	tryoutID, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+
+	var attempt models.TryoutAttempt
+	err := database.DB.
+		Where(
+			"user_id = ? AND tryout_id = ? AND finished_at IS NULL",
+			userID, tryoutID,
+		).
+		Order("started_at DESC").
+		First(&attempt).Error
+
+	if err != nil {
+		// tidak ada attempt aktif
+		c.JSON(200, gin.H{
+			"attempt_id": nil,
+		})
+		return
+	}
+
+	// 👇 TAMBAHAN DI SINI (HITUNG SOAL TERAKHIR)
+	var answeredCount int64
+	database.DB.
+		Model(&models.TryoutAnswer{}).
+		Where("attempt_id = ?", attempt.ID).
+		Count(&answeredCount)
+
+	c.JSON(200, gin.H{
+		"attempt_id":  attempt.ID,
+		"next_number": answeredCount + 1,
+	})
+}
+
+type SaveTryoutAnswerRequest struct {
+	AttemptID  uint `json:"attempt_id" binding:"required"`
+	QuestionID uint `json:"question_id" binding:"required"`
+	OptionID   uint `json:"option_id" binding:"required"`
+}
+
+func SaveTryoutAnswer(c *gin.Context) {
+	var req SaveTryoutAnswerRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": err.Error()})
+		return
+	}
+
+	// upsert: kalau sudah ada → update
+	var answer models.TryoutAnswer
+	err := database.DB.
+		Where(
+			"attempt_id = ? AND question_id = ?",
+			req.AttemptID, req.QuestionID,
+		).
+		First(&answer).Error
+
+	if err == nil {
+		// update
+		database.DB.
+			Model(&answer).
+			Update("option_id", req.OptionID)
+	} else {
+		// create
+		answer = models.TryoutAnswer{
+			AttemptID:  req.AttemptID,
+			QuestionID: req.QuestionID,
+			OptionID:   req.OptionID,
+		}
+		database.DB.Create(&answer)
+	}
+
+	c.JSON(200, gin.H{"status": "saved"})
 }

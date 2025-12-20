@@ -14,6 +14,7 @@ import (
 type UpdateProfileRequest struct {
 	FullName *string `json:"full_name"`
 	Phone    *string `json:"phone"`
+	IsPro    *bool   `json:"is_pro"`
 }
 
 func GetProfileHandler(c *gin.Context) {

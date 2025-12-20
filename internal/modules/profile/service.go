@@ -17,8 +17,13 @@ func UpdateProfile(userID uint, req UpdateProfileRequest) error {
 	if req.FullName != nil {
 		updates["full_name"] = *req.FullName
 	}
+
 	if req.Phone != nil {
 		updates["phone"] = *req.Phone
+	}
+
+	if req.IsPro != nil {
+		updates["is_pro"] = *req.IsPro
 	}
 
 	if len(updates) == 0 {
