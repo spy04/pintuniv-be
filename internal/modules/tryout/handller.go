@@ -436,3 +436,52 @@ func SaveTryoutAnswer(c *gin.Context) {
 
 	c.JSON(200, gin.H{"status": "saved"})
 }
+
+func GetTryoutLeaderboard(c *gin.Context) {
+	tryoutID, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+
+	limitStr := c.DefaultQuery("limit", "10")
+	limit, _ := strconv.Atoi(limitStr)
+
+	type Row struct {
+		UserID uint
+		Name   string
+		Score  int
+	}
+
+	// ambil attempt terakhir tiap user
+	rows := []Row{}
+
+	database.DB.Raw(`
+		SELECT t1.user_id, t1.score
+		FROM tryout_attempts t1
+		INNER JOIN (
+			SELECT user_id, MAX(started_at) AS last_attempt
+			FROM tryout_attempts
+			WHERE tryout_id = ? AND finished_at IS NOT NULL
+			GROUP BY user_id
+		) t2
+		ON t1.user_id = t2.user_id AND t1.started_at = t2.last_attempt
+		WHERE t1.tryout_id = ?
+		ORDER BY t1.score DESC
+		LIMIT ?
+	`, tryoutID, tryoutID, limit).
+		Scan(&rows)
+
+	resp := []gin.H{}
+	rank := 1
+
+	for _, r := range rows {
+		resp = append(resp, gin.H{
+			"rank":    rank,
+			"user_id": r.UserID,
+			"score":   r.Score,
+		})
+		rank++
+	}
+
+	c.JSON(200, gin.H{
+		"tryout_id":   tryoutID,
+		"leaderboard": resp,
+	})
+}

@@ -42,5 +42,10 @@ func RegisterRoutes(r *gin.Engine) {
 			SaveTryoutAnswer,
 		)
 
+		api.GET(
+			"/tryouts/:id/leaderboard",
+			GetTryoutLeaderboard,
+		)
+
 	}
 }
