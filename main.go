@@ -7,6 +7,7 @@ import (
 	"pintuniv-go/internal/database/migrations"
 	"pintuniv-go/internal/models"
 	"pintuniv-go/internal/modules/auth"
+	"pintuniv-go/internal/modules/event"
 	"pintuniv-go/internal/modules/latihan"
 	"pintuniv-go/internal/modules/materi"
 	"pintuniv-go/internal/modules/profile"
@@ -37,6 +38,9 @@ func main() {
 		&models.TryoutOption{},
 		&models.TryoutAttempt{},
 		&models.TryoutAnswer{},
+
+		&models.Event{},
+		&models.EventTryout{},
 	)
 
 	migrations.Run()
@@ -50,6 +54,7 @@ func main() {
 	materi.RegisterRoutes(r)
 	latihan.RegisterRoutes(r)
 	tryout.RegisterRoutes(r)
+	event.RegisterRoutes(r)
 
 	port := os.Getenv("PORT")
 	if port == "" {
