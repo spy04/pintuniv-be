@@ -14,6 +14,8 @@ type Promo struct {
 	StartAt time.Time
 	EndAt   time.Time
 
+	ImageURL string `gorm:"type:text"`
+
 	IsActive bool
 
 	CreatedAt time.Time

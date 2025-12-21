@@ -1,9 +1,13 @@
 package promo
 
 import (
+	"fmt"
+	"os"
+	"path"
 	"pintuniv-go/internal/database"
 	"pintuniv-go/internal/models"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -143,5 +147,76 @@ func ValidatePromo(c *gin.Context) {
 		"valid": true,
 		"type":  promo.Type,
 		"value": promo.Value,
+	})
+}
+
+func AdminUploadPromoImage(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(400, gin.H{"error": "invalid_promo_id"})
+		return
+	}
+
+	var promo models.Promo
+	if err := database.DB.First(&promo, id).Error; err != nil {
+		c.JSON(404, gin.H{"error": "promo_not_found"})
+		return
+	}
+
+	file, err := c.FormFile("image")
+	if err != nil {
+		c.JSON(400, gin.H{"error": "image_required"})
+		return
+	}
+
+	if file.Size > 2*1024*1024 {
+		c.JSON(400, gin.H{"error": "image_too_large"})
+		return
+	}
+
+	ext := strings.ToLower(path.Ext(file.Filename))
+	allowed := map[string]bool{
+		".jpg": true, ".jpeg": true, ".png": true, ".webp": true,
+	}
+	if !allowed[ext] {
+		c.JSON(400, gin.H{"error": "invalid_image_type"})
+		return
+	}
+
+	uploadDir := "public/promos"
+	_ = os.MkdirAll(uploadDir, os.ModePerm)
+
+	filename := fmt.Sprintf("promo_%d_%d%s", promo.ID, time.Now().Unix(), ext)
+	fullPath := path.Join(uploadDir, filename)
+
+	if err := c.SaveUploadedFile(file, fullPath); err != nil {
+		c.JSON(500, gin.H{"error": "upload_failed"})
+		return
+	}
+
+	// hapus file lama (optional tapi bagus)
+	if promo.ImageURL != "" {
+		oldPath := strings.TrimPrefix(promo.ImageURL, "/")
+		_ = os.Remove(oldPath)
+	}
+
+	imageURL := fmt.Sprintf("/public/promos/%s", filename)
+	database.DB.Model(&promo).Update("image_url", imageURL)
+
+	c.JSON(200, gin.H{"image_url": imageURL})
+}
+
+func GetPromos(c *gin.Context) {
+	var promos []models.Promo
+
+	database.DB.
+		Where(
+			"is_active = true AND start_at <= NOW() AND end_at >= NOW()",
+		).
+		Order("created_at desc").
+		Find(&promos)
+
+	c.JSON(200, gin.H{
+		"data": promos,
 	})
 }

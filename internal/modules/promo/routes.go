@@ -27,5 +27,10 @@ func RegisterRoutes(r *gin.Engine) {
 
 		// Cek promo valid / tidak (untuk FE preview)
 		api.GET("/promos/validate", ValidatePromo)
+
+		api.POST("/admin/promos/:id/image", AdminUploadPromoImage)
+
+		api.GET("/promos", GetPromos)
+
 	}
 }
