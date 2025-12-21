@@ -26,6 +26,17 @@ func UpdateProfile(userID uint, req UpdateProfileRequest) error {
 		updates["is_pro"] = *req.IsPro
 	}
 
+	if req.AsalSekolah != nil {
+		updates["asal_sekolah"] = *req.AsalSekolah
+	}
+	if req.Jurusan != nil {
+		updates["jurusan"] = *req.Jurusan
+	}
+
+	if req.Lulus != nil {
+		updates["lulus"] = *req.Lulus
+	}
+
 	if len(updates) == 0 {
 		return nil
 	}
