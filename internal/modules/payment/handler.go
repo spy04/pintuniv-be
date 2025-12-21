@@ -14,24 +14,25 @@ import (
 )
 
 type CreateProPaymentRequest struct {
-	PackageID uint `json:"package_id" binding:"required"`
+	PackageID uint   `json:"package_id" binding:"required"`
+	PromoCode string `json:"promo_code"`
 }
 
 func CreateProPayment(c *gin.Context) {
 	userID := c.GetUint("user_id")
 
-	// ======================
+	// --------------------------
 	// 1. PARSE REQUEST
-	// ======================
+	// --------------------------
 	var req CreateProPaymentRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(400, gin.H{"error": err.Error()})
 		return
 	}
 
-	// ======================
+	// --------------------------
 	// 2. AMBIL PACKAGE (SUMBER HARGA)
-	// ======================
+	// --------------------------
 	var pkg models.Package
 	if err := database.DB.
 		Where("id = ? AND is_active = true", req.PackageID).
@@ -41,43 +42,91 @@ func CreateProPayment(c *gin.Context) {
 		return
 	}
 
-	// ======================
-	// 3. CREATE PAYMENT
-	// ======================
+	// --------------------------
+	// 3. HITUNG HARGA AKHIR
+	// --------------------------
+	finalAmount := pkg.Price
+
+	if req.PromoCode != "" {
+		var promo models.Promo
+
+		// promo harus aktif & dalam periode
+		err := database.DB.
+			Where(
+				"code = ? AND is_active = true AND start_at <= NOW() AND end_at >= NOW()",
+				req.PromoCode,
+			).
+			First(&promo).Error
+
+		if err == nil {
+			// cek promo berlaku untuk package ini atau tidak
+			var count int64
+			database.DB.
+				Model(&models.PromoPackage{}).
+				Where("promo_id = ? AND package_id = ?", promo.ID, pkg.ID).
+				Count(&count)
+
+			if count > 0 {
+				if promo.Type == "percent" {
+					discount := (pkg.Price * promo.Value) / 100
+					finalAmount = pkg.Price - discount
+				}
+
+				if promo.Type == "flat" {
+					finalAmount = pkg.Price - promo.Value
+				}
+
+				if finalAmount < 0 {
+					finalAmount = 0
+				}
+			}
+		}
+	}
+
+	// --------------------------
+	// 4. CREATE PAYMENT RECORD
+	// --------------------------
 	orderID := fmt.Sprintf("PRO-%s", uuid.NewString())
 
 	payment := models.Payment{
 		UserID:    userID,
 		PackageID: pkg.ID,
 		OrderID:   orderID,
-		Amount:    pkg.Price, // ✅ DARI DB
+		Amount:    finalAmount,
 		Status:    "pending",
 		Type:      "pro",
 	}
 
-	database.DB.Create(&payment)
+	if err := database.DB.Create(&payment).Error; err != nil {
+		c.JSON(500, gin.H{"error": "failed_create_payment"})
+		return
+	}
 
-	// ======================
-	// 4. CREATE SNAP
-	// ======================
-	reqSnap := &snap.Request{
+	// --------------------------
+	// 5. CREATE MIDTRANS SNAP
+	// --------------------------
+	snapReq := &snap.Request{
 		TransactionDetails: midtrans.TransactionDetails{
 			OrderID:  orderID,
-			GrossAmt: pkg.Price, // ✅ DARI DB
+			GrossAmt: finalAmount,
 		},
 	}
 
 	var s snap.Client
 	s.New(midtrans.ServerKey, midtrans.Environment)
 
-	resp, err := s.CreateTransaction(reqSnap)
+	resp, err := s.CreateTransaction(snapReq)
 	if err != nil {
 		c.JSON(500, gin.H{"error": "midtrans_error"})
 		return
 	}
 
+	// --------------------------
+	// 6. RESPONSE
+	// --------------------------
 	c.JSON(200, gin.H{
 		"snap_url": resp.RedirectURL,
+		"amount":   finalAmount,
 	})
 }
 

@@ -8,12 +8,15 @@ import (
 	"pintuniv-go/internal/database/migrations"
 	"pintuniv-go/internal/models"
 	"pintuniv-go/internal/modules/auth"
+	"pintuniv-go/internal/modules/countdown.go"
 	"pintuniv-go/internal/modules/event"
 	"pintuniv-go/internal/modules/latihan"
 	"pintuniv-go/internal/modules/materi"
 	package_module "pintuniv-go/internal/modules/package"
 	"pintuniv-go/internal/modules/payment"
 	"pintuniv-go/internal/modules/profile"
+	"pintuniv-go/internal/modules/promo"
+	"pintuniv-go/internal/modules/quote"
 	"pintuniv-go/internal/modules/tryout"
 
 	"github.com/gin-gonic/gin"
@@ -49,6 +52,13 @@ func main() {
 
 		&models.Payment{},
 		&models.Package{},
+
+		&models.Promo{},
+		&models.PromoPackage{},
+
+		&models.Quote{},
+
+		&models.Countdown{},
 	)
 
 	migrations.Run()
@@ -65,6 +75,9 @@ func main() {
 	event.RegisterRoutes(r)
 	payment.RegisterRoutes(r)
 	package_module.RegisterRoutes(r)
+	promo.RegisterRoutes(r)
+	quote.RegisterRoutes(r)
+	countdown.RegisterRoutes(r)
 
 	port := os.Getenv("PORT")
 	if port == "" {
